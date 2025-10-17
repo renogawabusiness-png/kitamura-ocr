@@ -5,42 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>キタムラOCR抽出アプリ</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #fafafa;
-      text-align: center;
-      margin: 0;
-      padding: 20px;
-    }
-    h1 {
-      color: #ff0010;
-      font-size: 1.6em;
-      margin-bottom: 20px;
-    }
+    body { font-family: Arial, sans-serif; background: #fafafa; text-align: center; margin: 0; padding: 20px; }
+    h1 { color: #ff0010; font-size: 1.6em; margin-bottom: 20px; }
     input, select, textarea, button {
-      width: 90%;
-      max-width: 400px;
-      margin: 10px auto;
-      font-size: 1.1em;
-      padding: 10px;
-      border-radius: 8px;
-      border: 1px solid #ccc;
-      display: block;
+      width: 90%; max-width: 400px; margin: 10px auto; font-size: 1.1em;
+      padding: 10px; border-radius: 8px; border: 1px solid #ccc; display: block;
     }
-    button {
-      background-color: #007bff;
-      color: white;
-      cursor: pointer;
-      border: none;
-    }
-    button:hover {
-      background-color: #0056b3;
-    }
-    #output {
-      margin-top: 25px;
-      font-size: 1.2em;
-      white-space: pre-wrap;
-    }
+    button { background-color: #007bff; color: white; cursor: pointer; border: none; }
+    button:hover { background-color: #0056b3; }
+    #output { margin-top: 25px; font-size: 1.2em; white-space: pre-wrap; }
   </style>
 </head>
 <body>
@@ -62,10 +35,13 @@
   <input type="number" id="expectedPrice" placeholder="Expected Price (USD)">
   <textarea id="notes" placeholder="Notes"></textarea>
 
-  <button onclick="processImage()">Extract Info</button>
+  <button id="extractButton">Extract Info</button>
   <div id="output"></div>
 
+  <!-- ✅ JavaScriptを最後に配置 -->
   <script>
+    document.getElementById("extractButton").addEventListener("click", processImage);
+
     async function processImage() {
       const imageFile = document.getElementById("imageInput").files[0];
       if (!imageFile) {
@@ -79,13 +55,24 @@
         document.getElementById("output").innerText = "⏳ 読み取り中...";
 
         try {
+          console.log("🔹 Sending request to Netlify Function...");
           const response = await fetch("/.netlify/functions/openai-function", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ imageBase64: base64Image })
           });
 
-          const result = await response.json();
+          console.log("🔹 Response status:", response.status);
+          const text = await response.text();
+          console.log("🔹 Raw response text:", text);
+
+          let result;
+          try {
+            result = JSON.parse(text);
+          } catch (e) {
+            document.getElementById("output").innerText = "⚠️ JSON変換に失敗: " + text;
+            return;
+          }
 
           const condition = document.getElementById("condition").value;
           const expectedPrice = document.getElementById("expectedPrice").value;
@@ -99,9 +86,14 @@
           ].join(", ");
 
           document.getElementById("output").innerText = `✅ 完了\n\n${csvLine}`;
-
-          // クリップボードにコピー
           await navigator.clipboard.writeText(csvLine);
         } catch (err) {
+          console.error("❌ Fetch error:", err);
           document.getElementById("output").innerText = "⚠️ エラー: " + err.message;
         }
+      };
+      reader.readAsDataURL(imageFile);
+    }
+  </script>
+</body>
+</html>
