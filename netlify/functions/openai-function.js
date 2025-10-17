@@ -8,7 +8,6 @@ export async function handler(event, context) {
       return { statusCode: 400, body: JSON.stringify({ error: "No image provided" }) };
     }
 
-    // Base64データの "data:image/png;base64,..." 部分を処理
     const base64Data = imageBase64.split(",")[1];
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -25,12 +24,26 @@ export async function handler(event, context) {
             content: [
               {
                 type: "text",
-                text: "次の画像は中古カメラ店（キタムラ）のプライスカードです。税込価格のみ（例：税込49,800円）と商品名を抽出し、JSON形式で出力してください。"
+                text: `
+あなたは中古カメラ店「キタムラ」のプライスカードOCR解析AIです。
+以下の画像から「商品名」と「税込価格」を正確に読み取り、次のようなJSON形式のみで出力してください。
+
+{
+  "商品": {
+    "名前": "（商品名）",
+    "価格": "税込（価格）円"
+  }
+}
+
+注意：
+- 余計な文字や説明は出力しない
+- 商品名と税込価格の2つだけ返す
+- 価格は半角数字と「円」のみ（カンマ可）
+                `
               },
               {
                 type: "image_url",
                 image_url: {
-                  // OpenAI Vision APIはURLまたはbase64エンコードされた画像を data URL 形式で受け取る
                   url: `data:image/jpeg;base64,${base64Data}`
                 }
               }
