@@ -1,9 +1,15 @@
-// openai-function.js
+// netlify/functions/openai-function.js
 // 安全なサーバーサイド関数（Netlify Functions互換）
 
 export async function handler(event, context) {
   try {
     const { imageBase64 } = JSON.parse(event.body);
+    if (!imageBase64) {
+      return { statusCode: 400, body: JSON.stringify({ error: "No image provided" }) };
+    }
+
+    // Base64データの "data:image/png;base64,..." 部分を処理
+    const base64Data = imageBase64.split(",")[1];
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -23,7 +29,10 @@ export async function handler(event, context) {
               },
               {
                 type: "image_url",
-                image_url: { url: imageBase64 }
+                image_url: {
+                  // OpenAI Vision APIはURLまたはbase64エンコードされた画像を data URL 形式で受け取る
+                  url: `data:image/jpeg;base64,${base64Data}`
+                }
               }
             ]
           }
@@ -32,6 +41,11 @@ export async function handler(event, context) {
     });
 
     const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error?.message || "OpenAI API error");
+    }
+
     return {
       statusCode: 200,
       body: JSON.stringify(data)
