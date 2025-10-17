@@ -34,41 +34,50 @@
   <div id="result"></div>
 
   <script>
-    document.getElementById("extractBtn").onclick = async function processImage() {
-      const fileInput = document.getElementById("imageInput");
-      if (!fileInput.files.length) return alert("画像を選択してください");
-      const file = fileInput.files[0];
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = async function () {
-        const imageBase64 = reader.result;
-        document.getElementById("result").innerText = "🔄 認識中...";
-        try {
-          const res = await fetch("/.netlify/functions/openai-function", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageBase64 })
-          });
-          const result = await res.json();
-          console.log("✅ AIからの最終レスポンス:", result);
+  document.getElementById("extractBtn").onclick = async function processImage() {
+    const fileInput = document.getElementById("imageInput");
+    if (!fileInput.files.length) return alert("画像を選択してください");
+    const file = fileInput.files[0];
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = async function () {
+      const imageBase64 = reader.result;
+      document.getElementById("result").innerText = "🔄 認識中...";
+      try {
+        const res = await fetch("/.netlify/functions/openai-function", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64 })
+        });
+        const result = await res.json();
+        console.log("✅ AIからの最終レスポンス:", result);
 
-          const name = result.商品?.名前 || "不明";
-          const priceJP = result.商品?.価格 || "不明";
-          const condition = document.getElementById("condition").value || "";
-          const priceUSD = document.getElementById("price").value || "";
-          const note = document.getElementById("note").value || "";
+        const name = result.商品?.名前 || "不明";
+        const priceJP = result.商品?.価格 || "不明";
+        const condition = document.getElementById("condition").value || "";
+        const priceUSD = document.getElementById("price").value || "";
+        const note = document.getElementById("note").value || "";
 
-          const output = `${name}, ${priceJP}, ${condition}, ${priceUSD}, ${note}`;
-          document.getElementById("result").innerText = output;
+        const output = `${name}, ${priceJP}, ${condition}, ${priceUSD}, ${note}`;
+        document.getElementById("result").innerHTML =
+          `<b>出力結果:</b><br>${output}<br><br><button id="copyBtn">📋 コピー</button>`;
 
-          // 自動でコピー
-          await navigator.clipboard.writeText(output);
-          alert("📋 コピーしました！\n" + output);
-        } catch (err) {
-          document.getElementById("result").innerText = "❌ エラー: " + err.message;
-        }
-      };
+        // ✅ コピー用ボタンを動作させる
+        document.getElementById("copyBtn").onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(output);
+            alert("📋 コピーしました！");
+          } catch {
+            alert("⚠️ 自動コピーがブロックされました。\n手動でコピーしてください。");
+          }
+        };
+      } catch (err) {
+        document.getElementById("result").innerText = "❌ エラー: " + err.message;
+      }
     };
-  </script>
+  };
+</script>
+
 </body>
 </html>
+
