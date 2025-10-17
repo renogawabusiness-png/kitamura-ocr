@@ -1,27 +1,24 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>キタムラOCR抽出アプリ</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kitamura OCR Extractor</title>
   <style>
-    body { font-family: Arial, sans-serif; background: #fafafa; text-align: center; margin: 0; padding: 20px; }
-    h1 { color: #ff0010; font-size: 1.6em; margin-bottom: 20px; }
-    input, select, textarea, button {
-      width: 90%; max-width: 400px; margin: 10px auto; font-size: 1.1em;
-      padding: 10px; border-radius: 8px; border: 1px solid #ccc; display: block;
-    }
-    button { background-color: #007bff; color: white; cursor: pointer; border: none; }
-    button:hover { background-color: #0056b3; }
-    #output { margin-top: 25px; font-size: 1.2em; white-space: pre-wrap; }
+    body { font-family: Arial; margin: 20px; background: #f5f5f5; }
+    h2 { color: #333; }
+    input, select, button, textarea { font-size: 16px; margin: 6px 0; padding: 6px; width: 100%; max-width: 400px; }
+    button { background: #0078d7; color: white; border: none; border-radius: 6px; cursor: pointer; padding: 10px; }
+    button:hover { background: #005ea3; }
+    textarea { height: 80px; }
+    #result { margin-top: 20px; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 0 6px rgba(0,0,0,0.1); }
   </style>
 </head>
 <body>
-  <h1>キタムラOCR抽出アプリ</h1>
-
-  <input type="file" id="imageInput" accept="image/*">
-  
+  <h2>📸 キタムラプライスカード情報抽出</h2>
+  <input type="file" id="imageInput" accept="image/*"><br>
   <select id="condition">
+    <option value="">Select Condition</option>
     <option>Unused</option>
     <option>TOP MINT</option>
     <option>MINT</option>
@@ -29,76 +26,49 @@
     <option>NEAR MINT</option>
     <option>EXCELLENT5</option>
     <option>EXCELLENT3</option>
-    <option>AS IS / For PARTS</option>
-  </select>
+    <option>AS IS/For PARTS</option>
+  </select><br>
+  <input type="number" id="price" placeholder="Expected Price (USD)"><br>
+  <textarea id="note" placeholder="Notes"></textarea><br>
+  <button id="extractBtn">Extract Info</button>
+  <div id="result"></div>
 
-  <input type="number" id="expectedPrice" placeholder="Expected Price (USD)">
-  <textarea id="notes" placeholder="Notes"></textarea>
-
-  <button id="extractButton">Extract Info</button>
-  <div id="output"></div>
-
-  <!-- ✅ JavaScriptを最後に配置 -->
   <script>
-  document.getElementById("extractButton").addEventListener("click", processImage);
-
-  async function processImage() {
-    const imageFile = document.getElementById("imageInput").files[0];
-    if (!imageFile) {
-      alert("画像を選択してください。");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const base64Image = reader.result;
-      document.getElementById("output").innerText = "⏳ 読み取り中...";
-
-      try {
-        const response = await fetch("/.netlify/functions/openai-function", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: base64Image })
-        });
-
-        const data = await response.json();
-        console.log("🔹 OpenAI Response:", data);
-
-        // ✅ 商品名・価格を抽出（安全にJSONパース）
-        let name = "";
-        let price = "";
-
+    document.getElementById("extractBtn").onclick = async function processImage() {
+      const fileInput = document.getElementById("imageInput");
+      if (!fileInput.files.length) return alert("画像を選択してください");
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = async function () {
+        const imageBase64 = reader.result;
+        document.getElementById("result").innerText = "🔄 認識中...";
         try {
-          const text = data.choices?.[0]?.message?.content || "";
-          const parsed = JSON.parse(text);
-          name = parsed.商品?.名前 || "";
-          price = parsed.商品?.価格 || "";
-        } catch {
-          // JSONとしてパースできなかった場合のフォールバック
-          const text = data.choices?.[0]?.message?.content || "";
-          const nameMatch = text.match(/名前["：:]*\s*"?([^",]+)"?/);
-          const priceMatch = text.match(/価格["：:]*\s*"?([^",]+)"?/);
-          name = nameMatch?.[1] || "不明";
-          price = priceMatch?.[1] || "不明";
+          const res = await fetch("/.netlify/functions/openai-function", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageBase64 })
+          });
+          const result = await res.json();
+          console.log("✅ AIからの最終レスポンス:", result);
+
+          const name = result.商品?.名前 || "不明";
+          const priceJP = result.商品?.価格 || "不明";
+          const condition = document.getElementById("condition").value || "";
+          const priceUSD = document.getElementById("price").value || "";
+          const note = document.getElementById("note").value || "";
+
+          const output = `${name}, ${priceJP}, ${condition}, ${priceUSD}, ${note}`;
+          document.getElementById("result").innerText = output;
+
+          // 自動でコピー
+          await navigator.clipboard.writeText(output);
+          alert("📋 コピーしました！\n" + output);
+        } catch (err) {
+          document.getElementById("result").innerText = "❌ エラー: " + err.message;
         }
-
-        const condition = document.getElementById("condition").value;
-        const expectedPrice = document.getElementById("expectedPrice").value;
-        const notes = document.getElementById("notes").value;
-
-        const csvLine = [name, price, condition, expectedPrice, notes].join(", ");
-
-        document.getElementById("output").innerText = `✅ 完了\n\n${csvLine}`;
-        await navigator.clipboard.writeText(csvLine);
-      } catch (err) {
-        console.error("❌ Fetch error:", err);
-        document.getElementById("output").innerText = "⚠️ エラー: " + err.message;
-      }
+      };
     };
-    reader.readAsDataURL(imageFile);
-  }
-</script>
-
+  </script>
 </body>
 </html>
-
