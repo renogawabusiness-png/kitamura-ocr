@@ -1,94 +1,102 @@
 // netlify/functions/openai-function.js
-// OCR精度強化＋数値補完対応版
+// デバッグ付き安定版
 
 export async function handler(event, context) {
   try {
-    const { imageBase64 } = JSON.parse(event.body);
+    const { imageBase64 } = JSON.parse(event.body || "{}");
     if (!imageBase64) {
+      console.error("❌ No imageBase64 in body");
       return { statusCode: 400, body: JSON.stringify({ error: "No image provided" }) };
     }
 
     const base64Data = imageBase64.split(",")[1];
+    console.log("✅ Image received, length:", base64Data?.length);
 
-    // --- Step 1: OpenAI VisionでOCRを実行 ---
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const apiUrl = "https://api.openai.com/v1/chat/completions";
+    const bodyData = {
+      model: "gpt-4o-mini",
+      temperature: 0.2,
+      messages: [
+        {
+          role: "system",
+          content: `
+あなたは中古カメラ店「キタムラ」のプライスカードを解析するOCRエンジンです。
+必ず以下のJSON構造だけを返します。説明文や余計な文字は禁止です。
+
+{
+  "商品": {
+    "名前": "商品名（例：CONTAX S2 (60years) Body）",
+    "価格": "税込49,800円"
+  }
+}
+
+- 価格は必ず「税込」＋半角数字＋カンマ＋「円」形式
+- 桁を省略してはいけません（49 → 49,800円）
+- 不明でも「税込0円」など数値を必ず入れること
+`
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: { url: `data:image/jpeg;base64,${base64Data}` }
+            }
+          ]
+        }
+      ]
+    };
+
+    console.log("📤 Sending request to OpenAI...");
+    const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `
-以下の画像は中古カメラ店「キタムラ」のプライスカードです。
-- 商品名と税込価格を読み取ってJSONで出力してください。
-- 出力例：
-{
-  "商品": { "名前": "CONTAX S2 (60years) Body", "価格": "税込49,800円" }
-}
-- 「税込」+ 半角数字 + カンマ + 「円」形式を必ず維持。
-- 数字が途中で途切れている場合は推定して補完する（例：49 → 49,800）。
-- JSON以外の出力は禁止。
-`
-              },
-              {
-                type: "image_url",
-                image_url: { url: `data:image/jpeg;base64,${base64Data}` }
-              }
-            ]
-          }
-        ]
-      })
+      body: JSON.stringify(bodyData)
     });
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error?.message || "OpenAI API error");
+    const text = await response.text();
+    console.log("📥 Raw OpenAI response:", text);
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (err) {
+      console.error("❌ Failed to parse OpenAI response:", err);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "OpenAI returned invalid JSON", raw: text })
+      };
     }
 
-    // --- Step 2: JSON抽出 ---
     const content = data.choices?.[0]?.message?.content || "";
+    console.log("🧩 AI content:", content);
+
     let parsed;
     try {
       parsed = JSON.parse(content);
     } catch {
-      parsed = {};
-    }
-
-    let name = parsed.商品?.名前 || "不明";
-    let price = parsed.商品?.価格 || "";
-
-    // --- Step 3: 価格補完（正規表現補正）---
-    if (price) {
-      // 価格から数値を抽出
-      const numMatch = price.match(/(\d{1,3}(?:,\d{3})*|\d+)/);
-      if (numMatch) {
-        let num = numMatch[1].replace(/,/g, "");
-        // 49 → 49800 のように補完
-        if (num.length <= 2) {
-          num = num.padEnd(5, "0");
+      const nameMatch = content.match(/名前["：:]*["\s]*([^",}]+)/);
+      const priceMatch = content.match(/価格["：:]*["\s]*([^",}]+)/);
+      parsed = {
+        商品: {
+          名前: nameMatch?.[1]?.trim() || "不明",
+          価格: priceMatch?.[1]?.trim() || "税込0円"
         }
-        const formatted = new Intl.NumberFormat("ja-JP").format(Number(num));
-        price = `税込${formatted}円`;
-      }
-    } else {
-      price = "税込不明円";
+      };
     }
 
-    const result = { 商品: { 名前: name, 価格: price } };
+    console.log("✅ Parsed result:", parsed);
 
     return {
       statusCode: 200,
-      body: JSON.stringify(result)
+      body: JSON.stringify(parsed)
     };
 
   } catch (error) {
+    console.error("💥 Unhandled error:", error);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: error.message })
