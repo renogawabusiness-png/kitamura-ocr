@@ -11,7 +11,8 @@
     button { background: #0078d7; color: white; border: none; border-radius: 6px; cursor: pointer; padding: 10px; }
     button:hover { background: #005ea3; }
     textarea { height: 80px; }
-    #result { margin-top: 20px; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 0 6px rgba(0,0,0,0.1); }
+    #resultBox { margin-top: 20px; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 0 6px rgba(0,0,0,0.1); }
+    #editableOutput { width: 100%; height: 90px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; padding: 6px; }
   </style>
 </head>
 <body>
@@ -31,53 +32,60 @@
   <input type="number" id="price" placeholder="Expected Price (USD)"><br>
   <textarea id="note" placeholder="Notes"></textarea><br>
   <button id="extractBtn">Extract Info</button>
-  <div id="result"></div>
+
+  <div id="resultBox">
+    <div id="result">結果がここに表示されます</div>
+    <textarea id="editableOutput" placeholder="抽出結果をここで修正できます"></textarea><br>
+    <button id="copyBtn" style="display:none;">📋 修正後の内容をコピー</button>
+  </div>
 
   <script>
-  document.getElementById("extractBtn").onclick = async function processImage() {
-    const fileInput = document.getElementById("imageInput");
-    if (!fileInput.files.length) return alert("画像を選択してください");
-    const file = fileInput.files[0];
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = async function () {
-      const imageBase64 = reader.result;
-      document.getElementById("result").innerText = "🔄 認識中...";
+    document.getElementById("extractBtn").onclick = async function processImage() {
+      const fileInput = document.getElementById("imageInput");
+      if (!fileInput.files.length) return alert("画像を選択してください");
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = async function () {
+        const imageBase64 = reader.result;
+        document.getElementById("result").innerText = "🔄 認識中...";
+        document.getElementById("editableOutput").value = "";
+        document.getElementById("copyBtn").style.display = "none";
+        try {
+          const res = await fetch("/.netlify/functions/openai-function", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageBase64 })
+          });
+          const result = await res.json();
+          console.log("✅ AIからの最終レスポンス:", result);
+
+          const name = result.商品?.名前 || "不明";
+          const priceJP = result.商品?.価格 || "不明";
+          const condition = document.getElementById("condition").value || "";
+          const priceUSD = document.getElementById("price").value || "";
+          const note = document.getElementById("note").value || "";
+
+          const output = `${name}, ${priceJP}, ${condition}, ${priceUSD}, ${note}`;
+          document.getElementById("result").innerText = "✅ 抽出完了（修正できます）";
+          document.getElementById("editableOutput").value = output;
+          document.getElementById("copyBtn").style.display = "inline-block";
+
+        } catch (err) {
+          document.getElementById("result").innerText = "❌ エラー: " + err.message;
+        }
+      };
+    };
+
+    document.getElementById("copyBtn").onclick = async function () {
+      const text = document.getElementById("editableOutput").value;
       try {
-        const res = await fetch("/.netlify/functions/openai-function", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64 })
-        });
-        const result = await res.json();
-        console.log("✅ AIからの最終レスポンス:", result);
-
-        const name = result.商品?.名前 || "不明";
-        const priceJP = result.商品?.価格 || "不明";
-        const condition = document.getElementById("condition").value || "";
-        const priceUSD = document.getElementById("price").value || "";
-        const note = document.getElementById("note").value || "";
-
-        const output = `${name}, ${priceJP}, ${condition}, ${priceUSD}, ${note}`;
-        document.getElementById("result").innerHTML =
-          `<b>出力結果:</b><br>${output}<br><br><button id="copyBtn">📋 コピー</button>`;
-
-        // ✅ コピー用ボタンを動作させる
-        document.getElementById("copyBtn").onclick = async () => {
-          try {
-            await navigator.clipboard.writeText(output);
-            alert("📋 コピーしました！");
-          } catch {
-            alert("⚠️ 自動コピーがブロックされました。\n手動でコピーしてください。");
-          }
-        };
-      } catch (err) {
-        document.getElementById("result").innerText = "❌ エラー: " + err.message;
+        await navigator.clipboard.writeText(text);
+        alert("📋 修正後の内容をコピーしました！\n" + text);
+      } catch {
+        alert("⚠️ 自動コピーがブロックされました。手動でコピーしてください。");
       }
     };
-  };
-</script>
-
+  </script>
 </body>
 </html>
-
