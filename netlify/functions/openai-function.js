@@ -1,66 +1,80 @@
 // netlify/functions/openai-function.js
-// 📸 OpenAI Vision 高精度 OCR（画像file方式）
-// 仕様：1枚の画像ファイルをmultipart/form-dataで送信 → JSONで商品名・価格を返す
+// 📸 Step1：Vision File OCR 正式版（不明/0円問題を解消）
+// モデル：gpt-4.1-mini（高精度 & 高画質向け）  
+// 入力：画像ファイル（Base64 → Buffer）
+// 出力：{ 商品: { 名前: "...", 価格: "税込xx,xxx円" } }
 
 import fetch from "node-fetch";
 import FormData from "form-data";
 
 export async function handler(event) {
   try {
-    console.log("📥 Request received to Vision API");
+    console.log("📥 [Vision] Request received");
 
-    // アップロードファイルを読み込む
-    const body = JSON.parse(event.body);
+    const body = JSON.parse(event.body || "{}");
     const imageBase64 = body.imageBase64;
+
     if (!imageBase64) {
-      return { statusCode: 400, body: JSON.stringify({ error: "No image provided" }) };
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "No image provided" }),
+      };
     }
 
-    // base64 → バイナリ変換
+    // Base64 → Buffer
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
     const imageBuffer = Buffer.from(base64Data, "base64");
 
-    // multipart/form-data を構築
+    // multipart form
     const form = new FormData();
-    form.append(
-      "file",
-      imageBuffer,
-      { filename: "image.jpg", contentType: "image/jpeg" }
-    );
+    form.append("model", "gpt-4.1-mini");
 
-    // Vision API呼び出し
-    form.append("model", "gpt-4o-mini");
+    // Vision用 input フォーマット（←ここが重要）
     form.append(
-      "messages",
+      "input",
       JSON.stringify([
         {
           role: "user",
           content: [
-            { type: "text", text: "次の画像は中古カメラ店（キタムラ）のプライスカードです。税込価格（例：税込49,800円）と商品名を正確に抽出し、以下のJSON形式で出力してください：{ \"商品\": { \"名前\": \"...\", \"価格\": \"税込xx,xxx円\" } }" }
-          ]
-        }
+            {
+              type: "input_text",
+              text: "次の画像は日本の中古カメラ店（キタムラ）の値札です。商品名と税込価格のみ抽出してください。以下の形式で返してください：{ \"商品\": { \"名前\": \"...\", \"価格\": \"税込xx,xxx円\" } }"
+            },
+          ],
+        },
       ])
     );
 
-    console.log("📤 Sending request to OpenAI...");
+    // 画像を file として添付
+    form.append("input_file", imageBuffer, {
+      filename: "image.jpg",
+      contentType: "image/jpeg",
+    });
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    console.log("📤 Sending to OpenAI /v1/responses ...");
+
+    const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
       body: form,
     });
 
     const result = await response.json();
-    console.log("📥 Raw response:", JSON.stringify(result, null, 2));
+    console.log("📥 Raw Response:", JSON.stringify(result, null, 2));
 
-    // 結果抽出
-    let outputText = result?.choices?.[0]?.message?.content?.trim() || "";
-    if (!outputText) outputText = '{"商品":{"名前":"不明","価格":"税込0円"}}';
+    let output = result?.output_text ?? "";
 
-    // JSONパースを安全に
+    // 応答が空の場合の保険
+    if (!output) {
+      output = `{"商品":{"名前":"不明","価格":"税込0円"}}`;
+    }
+
+    // JSONとして解釈
     let parsed;
     try {
-      parsed = JSON.parse(outputText);
+      parsed = JSON.parse(output);
     } catch {
       parsed = { 商品: { 名前: "不明", 価格: "税込0円" } };
     }
@@ -69,11 +83,12 @@ export async function handler(event) {
       statusCode: 200,
       body: JSON.stringify(parsed),
     };
-  } catch (error) {
-    console.error("❌ Error:", error);
+
+  } catch (err) {
+    console.error("❌ [Vision] Error:", err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error.message }),
+      body: JSON.stringify({ error: err.message }),
     };
   }
 }
