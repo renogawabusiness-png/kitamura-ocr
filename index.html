@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Kitamura OCR Extractor</title>
   <style>
-    :root { --c1:#0078d7; --c2:#005ea3; --bg:#f7f7f7; --fg:#222; --muted:#666; }
+    :root { --c1:#0078d7; --c2:#005ea3; --bg:#f7f7f7; --fg:#222; --muted:#666; --success:#2ecc71; }
     *{ box-sizing:border-box; }
     body{ font-family:Arial,Helvetica,sans-serif; margin:16px; background:var(--bg); color:var(--fg); }
     h2{ margin:0 0 12px; font-size:20px; }
@@ -32,10 +32,30 @@
     .history-actions{ display:flex; gap:8px; margin-top:6px; }
     .small{ font-size:12px; }
     .pill{ display:inline-block; background:#eee; border-radius:999px; padding:4px 10px; font-size:12px; }
+
+    /* ✅ 転記成功バナー */
+    #successBanner {
+      display:none;
+      position:fixed;
+      top:12px;
+      left:50%;
+      transform:translateX(-50%);
+      background:var(--success);
+      color:white;
+      padding:12px 18px;
+      border-radius:8px;
+      font-size:15px;
+      box-shadow:0 2px 8px rgba(0,0,0,.2);
+      z-index:9999;
+      animation:fadein .3s;
+    }
+    @keyframes fadein { from{opacity:0; transform:translate(-50%, -10px);} to{opacity:1; transform:translate(-50%, 0);} }
   </style>
 </head>
 <body>
   <h2>📸 キタムラ プライスカード OCR 抽出</h2>
+
+  <div id="successBanner"></div>
 
   <div class="card">
     <div class="row">
@@ -83,7 +103,11 @@
   </dialog>
 
   <script>
+    /* ✅ あなた専用 */
     const GAS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxj6HL0L1GBuPvXHOFqVInoTgSYJBKQLeVkAIzx_YyXGzuH7xc6abinSZRWDDST5rkNjQ/exec";
+
+    /* ✅ 後でシートURLを入れてください */
+    const SHEET_URL = "<<<ここにシートURL>>>";
 
     const HISTORY_KEY = "kitamura_ocr_history_v1";
     const HISTORY_LIMIT = 30;
@@ -105,7 +129,16 @@
       histCount: document.getElementById("histCount"),
       clearHistoryBtn: document.getElementById("clearHistoryBtn"),
       closeHistoryBtn: document.getElementById("closeHistoryBtn"),
+      successBanner: document.getElementById("successBanner"),
     };
+
+    function showBanner(msg, withOpenBtn=false) {
+      els.successBanner.innerHTML = withOpenBtn
+        ? `${msg} <button style="margin-left:8px;background:white;color:black;padding:4px 8px;border-radius:6px;cursor:pointer;" onclick="window.open(SHEET_URL, '_blank')">シートを開く</button>`
+        : msg;
+      els.successBanner.style.display = "block";
+      setTimeout(()=>{ els.successBanner.style.display = "none"; }, 5000);
+    }
 
     function loadHistory(){ try{ return JSON.parse(localStorage.getItem(HISTORY_KEY)||"[]"); }catch{ return []; } }
     function saveHistory(arr){ localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); }
@@ -140,6 +173,7 @@
         els.historyList.appendChild(div);
       });
     }
+
     els.openHistoryBtn.onclick = ()=>{ renderHistory(); els.historyModal.showModal(); };
     els.closeHistoryBtn.onclick = ()=> els.historyModal.close();
     els.clearHistoryBtn.onclick = ()=>{
@@ -164,7 +198,7 @@
 
     els.extractBtn.onclick = async function(){
       const file = els.imageInput.files?.[0];
-      if (!file){ alert("画像を選択してください"); return; }
+      if (!file) return alert("画像を選択してください");
 
       const reader = new FileReader();
       reader.onload = async ()=>{
@@ -210,18 +244,16 @@
 
     els.saveHistoryBtn.onclick = ()=>{
       const { name, priceJP, cond, usd, memo } = parseCsvLine(els.editableOutput.value);
-      if (!name){ alert("商品名が空です。編集欄を確認してください。"); return; }
+      if (!name) return alert("商品名が空です。編集欄を確認してください。");
       addToHistory({ name, priceJP, cond, usd, memo });
       els.status.textContent = "💾 履歴に保存しました。";
     };
 
+    /* ✅ CORS対応版：レスポンス受取り可能 */
     els.exportSheetBtn.onclick = async ()=>{
       const hist = loadHistory();
-      if (!hist.length){ alert("履歴が空です。まず抽出して『保存』してください。"); return; }
-      if (!GAS_WEBHOOK_URL){
-        alert("GASのWebアプリURLが設定されていません。");
-        return;
-      }
+      if (!hist.length) return alert("履歴が空です。まず抽出して『保存』してください。");
+      if (!GAS_WEBHOOK_URL) return alert("GAS WebアプリURLが設定されていません。");
 
       const payload = hist.map(h=>({
         name: h.name,
@@ -232,20 +264,22 @@
       }));
 
       try{
-        await fetch(GAS_WEBHOOK_URL,{
+        const r = await fetch(GAS_WEBHOOK_URL,{
           method:"POST",
-          mode: "no-cors",
           headers:{ "Content-Type":"application/json" },
           body: JSON.stringify({ entries: payload })
         });
+        const j = await r.json();
 
-        alert(`🧾 スプレッドシートへ送信しました。（iPhoneのため結果は確認できませんが成功しています）`);
-
-        saveHistory([]);
-        els.status.textContent = "✅ シート転記完了（履歴をクリアしました）";
-
+        if (j.ok){
+          showBanner(`🧾 スプレッドシートへ ${j.added}件 追加しました！`, true);
+          saveHistory([]);
+          els.status.textContent = "✅ シート転記完了（履歴をクリアしました）";
+        } else {
+          alert("転記に失敗しました: " + (j.error || "Unknown error"));
+        }
       }catch(e){
-        alert("通信エラー(no-cors版): " + e.message);
+        alert("通信エラー: " + e.message);
       }
     };
   </script>
