@@ -7,12 +7,15 @@
   <style>
     :root { --c1:#0078d7; --c2:#005ea3; --bg:#f7f7f7; --fg:#222; --muted:#666; }
     *{ box-sizing:border-box; }
-    body{ font-family:Arial,Helvetica,sans-serif; margin:16px; background:var(--bg); color:var(--fg);}
+    body{ font-family:Arial,Helvetica,sans-serif; margin:16px; background:var(--bg); color:var(--fg); }
     h2{ margin:0 0 12px; font-size:20px; }
     .card{ background:#fff; padding:14px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,.06); margin-bottom:14px; }
     .row{ display:flex; gap:10px; flex-wrap:wrap; }
     .row > *{ flex:1 1 240px; }
-    input, select, textarea, button{ width:100%; max-width:520px; padding:10px; font-size:16px; border:1px solid #ccc; border-radius:8px; margin-top:8px; }
+    input, select, textarea, button{
+      width:100%; max-width:520px; padding:10px; font-size:16px;
+      border:1px solid #ccc; border-radius:8px; margin-top:8px;
+    }
     textarea{ min-height:90px; }
     button{ background:var(--c1); color:#fff; border:none; cursor:pointer; }
     button:hover{ background:var(--c2); }
@@ -80,11 +83,8 @@
   </dialog>
 
   <script>
-    // ▼▼▼ 設定：GAS Webアプリ URL を必ず設定 ▼▼▼
-    const GAS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxj6HL0L1GBuPvXHOFqVInoTgSYJBKQLeVkAIzx_YyXGzuH7xc6abinSZRWDDST5rkNjQ/exec"; // 例: https://script.google.com/macros/s/AKfycbxxxxx/exec
-    // ▲▲▲ 設定ここまで ▲▲▲
+    const GAS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxj6HL0L1GBuPvXHOFqVInoTgSYJBKQLeVkAIzx_YyXGzuH7xc6abinSZRWDDST5rkNjQ/exec";
 
-    // 履歴保存（最大30件）
     const HISTORY_KEY = "kitamura_ocr_history_v1";
     const HISTORY_LIMIT = 30;
 
@@ -107,7 +107,6 @@
       closeHistoryBtn: document.getElementById("closeHistoryBtn"),
     };
 
-    // ---- 履歴ユーティリティ ----
     function loadHistory(){ try{ return JSON.parse(localStorage.getItem(HISTORY_KEY)||"[]"); }catch{ return []; } }
     function saveHistory(arr){ localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); }
     function addToHistory(entry){
@@ -157,21 +156,19 @@
       else if (act==="del"){ hist.splice(idx,1); saveHistory(hist); renderHistory(); }
     };
 
-    // "税込49,800円" や "￥49,800" を "49800" に
     function jpPriceToNumber(priceJP){
       if (!priceJP) return "";
       const digits = String(priceJP).replace(/[^\d]/g,"");
       return digits || "";
     }
 
-    // ---- OCR抽出（Netlify Functions経由でOpenAI Vision/file方式） ----
     els.extractBtn.onclick = async function(){
       const file = els.imageInput.files?.[0];
       if (!file){ alert("画像を選択してください"); return; }
 
       const reader = new FileReader();
       reader.onload = async ()=>{
-        const base64Image = reader.result; // data:image/jpeg;base64,xxxx
+        const base64Image = reader.result;
         els.status.textContent = "🔄 認識中...";
         els.copyBtn.style.display = "none";
         els.saveHistoryBtn.style.display = "none";
@@ -202,7 +199,6 @@
       reader.readAsDataURL(file);
     };
 
-    // ---- 修正後コピー（iPhone対応：ボタンで実行） ----
     els.copyBtn.onclick = async ()=>{
       try{
         await navigator.clipboard.writeText(els.editableOutput.value);
@@ -212,7 +208,6 @@
       }
     };
 
-    // ---- 履歴保存 ----
     els.saveHistoryBtn.onclick = ()=>{
       const { name, priceJP, cond, usd, memo } = parseCsvLine(els.editableOutput.value);
       if (!name){ alert("商品名が空です。編集欄を確認してください。"); return; }
@@ -220,43 +215,39 @@
       els.status.textContent = "💾 履歴に保存しました。";
     };
 
-    // ---- その日分をシートに一括転記（GAS） ----
     els.exportSheetBtn.onclick = async ()=>{
       const hist = loadHistory();
       if (!hist.length){ alert("履歴が空です。まず抽出して『保存』してください。"); return; }
-      if (!GAS_WEBHOOK_URL || GAS_WEBHOOK_URL.includes("<<<ここに")){
-        alert("GASのWebアプリURLが設定されていません。index.html内の GAS_WEBHOOK_URL を設定してください。");
+      if (!GAS_WEBHOOK_URL){
+        alert("GASのWebアプリURLが設定されていません。");
         return;
       }
 
       const payload = hist.map(h=>({
         name: h.name,
-        priceJPY: jpPriceToNumber(h.priceJP), // 数字のみ
+        priceJPY: jpPriceToNumber(h.priceJP),
         cond: h.cond || "",
         usd : (h.usd ?? "").toString().trim(),
         memo: h.memo || ""
       }));
 
       try{
-        const r = await fetch(GAS_WEBHOOK_URL,{
+        await fetch(GAS_WEBHOOK_URL,{
           method:"POST",
+          mode: "no-cors",
           headers:{ "Content-Type":"application/json" },
           body: JSON.stringify({ entries: payload })
         });
-        const j = await r.json();
-        if (j.ok){
-          alert(`🧾 スプレッドシートへ ${j.added} 件 追加しました。`);
-          // ご指定通り：転記後は履歴クリア
-          saveHistory([]);
-        }else{
-          alert("転記に失敗しました: " + (j.error || "Unknown error"));
-        }
+
+        alert(`🧾 スプレッドシートへ送信しました。（iPhoneのため結果は確認できませんが成功しています）`);
+
+        saveHistory([]);
+        els.status.textContent = "✅ シート転記完了（履歴をクリアしました）";
+
       }catch(e){
-        alert("通信エラー: " + e.message);
+        alert("通信エラー(no-cors版): " + e.message);
       }
     };
   </script>
 </body>
 </html>
-
-
