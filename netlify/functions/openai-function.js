@@ -1,105 +1,79 @@
 // netlify/functions/openai-function.js
-// デバッグ付き安定版
+// 📸 OpenAI Vision 高精度 OCR（画像file方式）
+// 仕様：1枚の画像ファイルをmultipart/form-dataで送信 → JSONで商品名・価格を返す
 
-export async function handler(event, context) {
+import fetch from "node-fetch";
+import FormData from "form-data";
+
+export async function handler(event) {
   try {
-    const { imageBase64 } = JSON.parse(event.body || "{}");
+    console.log("📥 Request received to Vision API");
+
+    // アップロードファイルを読み込む
+    const body = JSON.parse(event.body);
+    const imageBase64 = body.imageBase64;
     if (!imageBase64) {
-      console.error("❌ No imageBase64 in body");
       return { statusCode: 400, body: JSON.stringify({ error: "No image provided" }) };
     }
 
-    const base64Data = imageBase64.split(",")[1];
-    console.log("✅ Image received, length:", base64Data?.length);
+    // base64 → バイナリ変換
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+    const imageBuffer = Buffer.from(base64Data, "base64");
 
-    const apiUrl = "https://api.openai.com/v1/chat/completions";
-    const bodyData = {
-      model: "gpt-4o-mini",
-      temperature: 0.2,
-      messages: [
-        {
-          role: "system",
-          content: `
-あなたは中古カメラ店「キタムラ」のプライスカードを解析するOCRエンジンです。
-必ず以下のJSON構造だけを返します。説明文や余計な文字は禁止です。
+    // multipart/form-data を構築
+    const form = new FormData();
+    form.append(
+      "file",
+      imageBuffer,
+      { filename: "image.jpg", contentType: "image/jpeg" }
+    );
 
-{
-  "商品": {
-    "名前": "商品名（例：CONTAX S2 (60years) Body）",
-    "価格": "税込49,800円"
-  }
-}
-
-- 価格は必ず「税込」＋半角数字＋カンマ＋「円」形式
-- 桁を省略してはいけません（49 → 49,800円）
-- 不明でも「税込0円」など数値を必ず入れること
-`
-        },
+    // Vision API呼び出し
+    form.append("model", "gpt-4o-mini");
+    form.append(
+      "messages",
+      JSON.stringify([
         {
           role: "user",
           content: [
-            {
-              type: "image_url",
-              image_url: { url: `data:image/jpeg;base64,${base64Data}` }
-            }
+            { type: "text", text: "次の画像は中古カメラ店（キタムラ）のプライスカードです。税込価格（例：税込49,800円）と商品名を正確に抽出し、以下のJSON形式で出力してください：{ \"商品\": { \"名前\": \"...\", \"価格\": \"税込xx,xxx円\" } }" }
           ]
         }
-      ]
-    };
+      ])
+    );
 
     console.log("📤 Sending request to OpenAI...");
-    const response = await fetch(apiUrl, {
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(bodyData)
+      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: form,
     });
 
-    const text = await response.text();
-    console.log("📥 Raw OpenAI response:", text);
+    const result = await response.json();
+    console.log("📥 Raw response:", JSON.stringify(result, null, 2));
 
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (err) {
-      console.error("❌ Failed to parse OpenAI response:", err);
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "OpenAI returned invalid JSON", raw: text })
-      };
-    }
+    // 結果抽出
+    let outputText = result?.choices?.[0]?.message?.content?.trim() || "";
+    if (!outputText) outputText = '{"商品":{"名前":"不明","価格":"税込0円"}}';
 
-    const content = data.choices?.[0]?.message?.content || "";
-    console.log("🧩 AI content:", content);
-
+    // JSONパースを安全に
     let parsed;
     try {
-      parsed = JSON.parse(content);
+      parsed = JSON.parse(outputText);
     } catch {
-      const nameMatch = content.match(/名前["：:]*["\s]*([^",}]+)/);
-      const priceMatch = content.match(/価格["：:]*["\s]*([^",}]+)/);
-      parsed = {
-        商品: {
-          名前: nameMatch?.[1]?.trim() || "不明",
-          価格: priceMatch?.[1]?.trim() || "税込0円"
-        }
-      };
+      parsed = { 商品: { 名前: "不明", 価格: "税込0円" } };
     }
-
-    console.log("✅ Parsed result:", parsed);
 
     return {
       statusCode: 200,
-      body: JSON.stringify(parsed)
+      body: JSON.stringify(parsed),
     };
-
   } catch (error) {
-    console.error("💥 Unhandled error:", error);
+    console.error("❌ Error:", error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error.message })
+      body: JSON.stringify({ error: error.message }),
     };
   }
 }
