@@ -5,28 +5,30 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Kitamura OCR Extractor</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 16px; background:#f7f7f7; }
-    h2 { margin: 0 0 12px; }
-    .card { background:#fff; padding:14px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,.06); margin-bottom:14px; }
-    input, select, textarea, button { width:100%; max-width:520px; padding:10px; font-size:16px; border:1px solid #ccc; border-radius:8px; margin-top:8px; }
-    button { background:#0078d7; color:#fff; border:none; cursor:pointer; }
-    button:hover { background:#005ea3; }
-    .row { display:flex; gap:10px; flex-wrap:wrap; }
-    .row > * { flex:1 1 240px; }
-    #resultBox { display:flex; flex-direction:column; gap:8px; }
-    #editableOutput { height:90px; }
-    .btn-secondary { background:#555; }
-    .pill { display:inline-block; background:#eee; border-radius:999px; padding:4px 10px; font-size:12px; margin-right:6px; }
-    .muted { color:#666; font-size:13px; }
-    .actions { display:flex; gap:8px; flex-wrap:wrap; }
-    dialog { width:min(680px, 92vw); border:none; border-radius:12px; padding:0; }
-    dialog::backdrop { background:rgba(0,0,0,.35); }
-    .modal-header { padding:12px 16px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; }
-    .modal-body { padding:12px 16px; max-height:55vh; overflow:auto; }
-    .modal-footer { padding:12px 16px; border-top:1px solid #eee; display:flex; gap:8px; justify-content:flex-end; }
-    .history-item { border:1px solid #eee; border-radius:8px; padding:10px; margin-bottom:8px; background:#fafafa; }
-    .history-actions { display:flex; gap:8px; margin-top:6px; }
-    .small { font-size:12px; }
+    :root { --c1:#0078d7; --c2:#005ea3; --bg:#f7f7f7; --fg:#222; --muted:#666; }
+    *{ box-sizing:border-box; }
+    body{ font-family:Arial,Helvetica,sans-serif; margin:16px; background:var(--bg); color:var(--fg);}
+    h2{ margin:0 0 12px; font-size:20px; }
+    .card{ background:#fff; padding:14px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,.06); margin-bottom:14px; }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; }
+    .row > *{ flex:1 1 240px; }
+    input, select, textarea, button{ width:100%; max-width:520px; padding:10px; font-size:16px; border:1px solid #ccc; border-radius:8px; margin-top:8px; }
+    textarea{ min-height:90px; }
+    button{ background:var(--c1); color:#fff; border:none; cursor:pointer; }
+    button:hover{ background:var(--c2); }
+    .btn-secondary{ background:#555; }
+    .muted{ color:var(--muted); font-size:13px; }
+    .actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+    #status{ margin-bottom:6px; }
+    dialog{ width:min(680px,92vw); border:none; border-radius:12px; padding:0; }
+    dialog::backdrop{ background:rgba(0,0,0,.35); }
+    .modal-header{ padding:12px 16px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; }
+    .modal-body{ padding:12px 16px; max-height:55vh; overflow:auto; }
+    .modal-footer{ padding:12px 16px; border-top:1px solid #eee; display:flex; gap:8px; justify-content:flex-end; }
+    .history-item{ border:1px solid #eee; border-radius:8px; padding:10px; margin-bottom:8px; background:#fafafa; }
+    .history-actions{ display:flex; gap:8px; margin-top:6px; }
+    .small{ font-size:12px; }
+    .pill{ display:inline-block; background:#eee; border-radius:999px; padding:4px 10px; font-size:12px; }
   </style>
 </head>
 <body>
@@ -34,7 +36,7 @@
 
   <div class="card">
     <div class="row">
-      <input type="file" id="imageInput" accept="image/*">
+      <input type="file" id="imageInput" accept="image/*" />
       <select id="condition">
         <option value="">Select Condition</option>
         <option>Unused</option>
@@ -46,10 +48,10 @@
         <option>EXCELLENT3</option>
         <option>AS IS/For PARTS</option>
       </select>
-      <input type="number" id="priceUSD" placeholder="Expected Price (USD)">
+      <input type="number" id="priceUSD" placeholder="Expected Price (USD)" />
       <textarea id="note" placeholder="Notes"></textarea>
     </div>
-    <div class="actions" style="margin-top:8px">
+    <div class="actions">
       <button id="extractBtn">Extract Info</button>
       <button id="copyBtn" class="btn-secondary" style="display:none;">📋 修正後の内容をコピー</button>
       <button id="saveHistoryBtn" class="btn-secondary" style="display:none;">💾 この結果を履歴に保存</button>
@@ -68,9 +70,7 @@
   <dialog id="historyModal">
     <div class="modal-header">
       <strong>📜 抽出履歴（最大30件）</strong>
-      <div>
-        <span class="pill" id="histCount">0 items</span>
-      </div>
+      <span class="pill" id="histCount">0 items</span>
     </div>
     <div class="modal-body" id="historyList"></div>
     <div class="modal-footer">
@@ -107,41 +107,30 @@
       closeHistoryBtn: document.getElementById("closeHistoryBtn"),
     };
 
-    function loadHistory() {
-      try {
-        return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
-      } catch {
-        return [];
-      }
-    }
-    function saveHistory(arr) {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(arr));
-    }
-    function addToHistory(entry) {
+    // ---- 履歴ユーティリティ ----
+    function loadHistory(){ try{ return JSON.parse(localStorage.getItem(HISTORY_KEY)||"[]"); }catch{ return []; } }
+    function saveHistory(arr){ localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); }
+    function addToHistory(entry){
       const hist = loadHistory();
-      hist.unshift(entry); // 先頭に追加
+      hist.unshift(entry);
       if (hist.length > HISTORY_LIMIT) hist.length = HISTORY_LIMIT;
       saveHistory(hist);
     }
-
-    function parseCsvLine(line) {
-      // 期待フォーマット: 商品名, 税込価格(例: 税込49,800円), Condition, USD, メモ
-      const parts = line.split(",").map(s => s.trim());
+    function parseCsvLine(line){
+      const parts = (line||"").split(",").map(s=>s.trim());
       const [name="", priceJP="", cond="", usd="", memo=""] = parts.concat(["","","","",""]).slice(0,5);
       return { name, priceJP, cond, usd, memo };
     }
-
-    function renderHistory() {
+    function renderHistory(){
       const hist = loadHistory();
       els.histCount.textContent = `${hist.length} items`;
       els.historyList.innerHTML = "";
-      hist.forEach((h, idx) => {
+      hist.forEach((h, idx)=>{
         const div = document.createElement("div");
         div.className = "history-item";
-        const csv = `${h.name}, ${h.priceJP}, ${h.cond}, ${h.usd}, ${h.memo}`;
         div.innerHTML = `
-          <div><strong>${h.name}</strong></div>
-          <div class="small muted">${h.priceJP} ｜ ${h.cond} ｜ USD: ${h.usd || "-"}</div>
+          <div><strong>${h.name || "(no title)"}</strong></div>
+          <div class="small muted">${h.priceJP || "-"} ｜ ${h.cond || "-"} ｜ USD: ${h.usd || "-"}</div>
           <div class="small muted">${h.memo || ""}</div>
           <div class="history-actions">
             <button data-idx="${idx}" data-act="use">↩ この内容を編集欄に反映</button>
@@ -152,69 +141,53 @@
         els.historyList.appendChild(div);
       });
     }
-
-    els.openHistoryBtn.onclick = () => {
-      renderHistory();
-      els.historyModal.showModal();
-    };
-    els.closeHistoryBtn.onclick = () => els.historyModal.close();
-    els.clearHistoryBtn.onclick = () => {
+    els.openHistoryBtn.onclick = ()=>{ renderHistory(); els.historyModal.showModal(); };
+    els.closeHistoryBtn.onclick = ()=> els.historyModal.close();
+    els.clearHistoryBtn.onclick = ()=>{
       if (!confirm("履歴をすべて削除しますか？")) return;
-      saveHistory([]);
-      renderHistory();
+      saveHistory([]); renderHistory();
     };
-    els.historyList.onclick = (e) => {
-      const btn = e.target.closest("button");
-      if (!btn) return;
-      const idx = Number(btn.dataset.idx);
-      const act = btn.dataset.act;
-      const hist = loadHistory();
-      const h = hist[idx];
-      if (!h) return;
-
-      if (act === "use") {
-        const csv = `${h.name}, ${h.priceJP}, ${h.cond}, ${h.usd}, ${h.memo}`;
-        els.editableOutput.value = csv;
-        els.status.textContent = "↩ 履歴から読み込みました。編集してコピー/保存できます。";
-        els.historyModal.close();
-      } else if (act === "copy") {
-        const csv = `${h.name}, ${h.priceJP}, ${h.cond}, ${h.usd}, ${h.memo}`;
-        navigator.clipboard.writeText(csv).then(() => alert("コピーしました！")).catch(() => alert("コピーに失敗しました。"));
-      } else if (act === "del") {
-        hist.splice(idx, 1);
-        saveHistory(hist);
-        renderHistory();
-      }
+    els.historyList.onclick = (e)=>{
+      const btn = e.target.closest("button"); if(!btn) return;
+      const idx = Number(btn.dataset.idx); const act = btn.dataset.act;
+      const hist = loadHistory(); const h = hist[idx]; if(!h) return;
+      const csv = `${h.name}, ${h.priceJP}, ${h.cond}, ${h.usd}, ${h.memo}`;
+      if (act==="use"){ els.editableOutput.value = csv; els.status.textContent="↩ 履歴から読み込みました。"; els.historyModal.close(); }
+      else if (act==="copy"){ navigator.clipboard.writeText(csv).then(()=>alert("コピーしました！")).catch(()=>alert("コピーに失敗しました。")); }
+      else if (act==="del"){ hist.splice(idx,1); saveHistory(hist); renderHistory(); }
     };
 
-    function jpPriceToNumber(priceJP) {
-      // "税込49,800円" や "￥49,800" を "49800" に
+    // "税込49,800円" や "￥49,800" を "49800" に
+    function jpPriceToNumber(priceJP){
       if (!priceJP) return "";
-      const digits = (priceJP + "").replace(/[^\d]/g, "");
+      const digits = String(priceJP).replace(/[^\d]/g,"");
       return digits || "";
     }
 
-    // 抽出 → 編集欄へ
-    document.getElementById("extractBtn").onclick = async function () {
+    // ---- OCR抽出（Netlify Functions経由でOpenAI Vision/file方式） ----
+    els.extractBtn.onclick = async function(){
       const file = els.imageInput.files?.[0];
-      if (!file) { alert("画像を選択してください"); return; }
+      if (!file){ alert("画像を選択してください"); return; }
 
       const reader = new FileReader();
-      reader.onload = async () => {
-        const base64Image = reader.result;
+      reader.onload = async ()=>{
+        const base64Image = reader.result; // data:image/jpeg;base64,xxxx
         els.status.textContent = "🔄 認識中...";
-        try {
-          const res = await fetch("/.netlify/functions/openai-function", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
+        els.copyBtn.style.display = "none";
+        els.saveHistoryBtn.style.display = "none";
+
+        try{
+          const res = await fetch("/.netlify/functions/openai-function",{
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
             body: JSON.stringify({ imageBase64: base64Image })
           });
           const data = await res.json();
 
           const name = data?.商品?.名前 || "不明";
-          const priceJP = data?.商品?.価格 || "不明";
+          const priceJP = data?.商品?.価格 || "税込0円";
           const cond = els.condition.value || "";
-          const usd = els.priceUSD.value || "";
+          const usd  = els.priceUSD.value || "";
           const memo = els.note.value || "";
 
           const csv = `${name}, ${priceJP}, ${cond}, ${usd}, ${memo}`;
@@ -222,70 +195,66 @@
           els.status.textContent = "✅ 抽出完了（編集→保存→コピー／一括転記できます）";
           els.copyBtn.style.display = "inline-block";
           els.saveHistoryBtn.style.display = "inline-block";
-        } catch (err) {
+        }catch(err){
           els.status.textContent = "❌ エラー: " + err.message;
         }
       };
       reader.readAsDataURL(file);
     };
 
-    // 修正後コピー（iPhone対応：ユーザー操作で実行）
-    els.copyBtn.onclick = async () => {
-      try {
+    // ---- 修正後コピー（iPhone対応：ボタンで実行） ----
+    els.copyBtn.onclick = async ()=>{
+      try{
         await navigator.clipboard.writeText(els.editableOutput.value);
         alert("📋 修正後の内容をコピーしました！");
-      } catch {
+      }catch{
         alert("⚠️ 自動コピーがブロックされました。手動でコピーしてください。");
       }
     };
 
-    // 履歴に保存
-    els.saveHistoryBtn.onclick = () => {
+    // ---- 履歴保存 ----
+    els.saveHistoryBtn.onclick = ()=>{
       const { name, priceJP, cond, usd, memo } = parseCsvLine(els.editableOutput.value);
-      if (!name) return alert("商品名が空です。編集欄を確認してください。");
+      if (!name){ alert("商品名が空です。編集欄を確認してください。"); return; }
       addToHistory({ name, priceJP, cond, usd, memo });
       els.status.textContent = "💾 履歴に保存しました。";
     };
 
-    // 一括転記（その日分）：履歴→GAS
-    els.exportSheetBtn.onclick = async () => {
+    // ---- その日分をシートに一括転記（GAS） ----
+    els.exportSheetBtn.onclick = async ()=>{
       const hist = loadHistory();
-      if (!hist.length) return alert("履歴が空です。まず抽出して『保存』してください。");
-
-      // 価格を数値文字列化して送る（例: 税込49,800円 → "49800"）
-      const payload = hist.map(h => ({
-        name: h.name,
-        priceJPY: jpPriceToNumber(h.priceJP), // 数字だけ
-        cond: h.cond || "",
-        usd: (h.usd ?? "").toString().trim(),
-        memo: h.memo || ""
-      }));
-
-      if (!GAS_WEBHOOK_URL || GAS_WEBHOOK_URL.includes("<<<ここに")) {
+      if (!hist.length){ alert("履歴が空です。まず抽出して『保存』してください。"); return; }
+      if (!GAS_WEBHOOK_URL || GAS_WEBHOOK_URL.includes("<<<ここに")){
         alert("GASのWebアプリURLが設定されていません。index.html内の GAS_WEBHOOK_URL を設定してください。");
         return;
       }
 
-      try {
-        const r = await fetch(GAS_WEBHOOK_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+      const payload = hist.map(h=>({
+        name: h.name,
+        priceJPY: jpPriceToNumber(h.priceJP), // 数字のみ
+        cond: h.cond || "",
+        usd : (h.usd ?? "").toString().trim(),
+        memo: h.memo || ""
+      }));
+
+      try{
+        const r = await fetch(GAS_WEBHOOK_URL,{
+          method:"POST",
+          headers:{ "Content-Type":"application/json" },
           body: JSON.stringify({ entries: payload })
         });
         const j = await r.json();
-        if (j.ok) {
+        if (j.ok){
           alert(`🧾 スプレッドシートへ ${j.added} 件 追加しました。`);
-          // ご指定通り：転記後は履歴クリア（A案）
+          // ご指定通り：転記後は履歴クリア
           saveHistory([]);
-        } else {
+        }else{
           alert("転記に失敗しました: " + (j.error || "Unknown error"));
         }
-      } catch (e) {
+      }catch(e){
         alert("通信エラー: " + e.message);
       }
     };
   </script>
 </body>
 </html>
-
-
