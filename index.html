@@ -5,17 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Kitamura OCR Extractor</title>
   <style>
-    :root { --c1:#0078d7; --c2:#005ea3; --bg:#f7f7f7; --fg:#222; --muted:#666; --success:#2ecc71; }
+    :root { --c1:#0078d7; --c2:#005ea3; --bg:#f7f7f7; --fg:#222; --muted:#666; }
     *{ box-sizing:border-box; }
-    body{ font-family:Arial,Helvetica,sans-serif; margin:16px; background:var(--bg); color:var(--fg); }
+    body{ font-family:Arial,Helvetica,sans-serif; margin:16px; background:var(--bg); color:var(--fg);}
     h2{ margin:0 0 12px; font-size:20px; }
     .card{ background:#fff; padding:14px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,.06); margin-bottom:14px; }
     .row{ display:flex; gap:10px; flex-wrap:wrap; }
     .row > *{ flex:1 1 240px; }
-    input, select, textarea, button{
-      width:100%; max-width:520px; padding:10px; font-size:16px;
-      border:1px solid #ccc; border-radius:8px; margin-top:8px;
-    }
+    input, select, textarea, button{ width:100%; max-width:520px; padding:10px; font-size:16px; border:1px solid #ccc; border-radius:8px; margin-top:8px; }
     textarea{ min-height:90px; }
     button{ background:var(--c1); color:#fff; border:none; cursor:pointer; }
     button:hover{ background:var(--c2); }
@@ -32,38 +29,10 @@
     .history-actions{ display:flex; gap:8px; margin-top:6px; }
     .small{ font-size:12px; }
     .pill{ display:inline-block; background:#eee; border-radius:999px; padding:4px 10px; font-size:12px; }
-
-    #successBanner {
-      display:none;
-      position:fixed;
-      top:12px;
-      left:50%;
-      transform:translateX(-50%);
-      background:var(--success);
-      color:white;
-      padding:12px 18px;
-      border-radius:8px;
-      font-size:15px;
-      box-shadow:0 2px 8px rgba(0,0,0,.2);
-      z-index:9999;
-      animation:fadein .3s;
-    }
-    #successBanner button{
-      margin-left:8px;
-      background:white;
-      color:black;
-      padding:4px 8px;
-      border-radius:6px;
-      cursor:pointer;
-      border:none;
-    }
-    @keyframes fadein { from{opacity:0; transform:translate(-50%, -10px);} to{opacity:1; transform:translate(-50%, 0);} }
   </style>
 </head>
 <body>
   <h2>📸 キタムラ プライスカード OCR 抽出</h2>
-
-  <div id="successBanner"></div>
 
   <div class="card">
     <div class="row">
@@ -93,10 +62,11 @@
 
   <div id="resultBox" class="card">
     <div id="status" class="muted">結果がここに表示されます。</div>
-    <textarea id="editableOutput" placeholder="抽出結果をここで修正できます（CSV 1行： 商品名, 税込価格, Condition, USD, メモ ）"></textarea>
-    <div class="small muted">* 税込価格は「税込49,800円」のように抽出されますが、シート転記時に「49800」に自動変換します。</div>
+    <textarea id="editableOutput" placeholder="抽出結果をここで修正できます（CSV 1行： 商品名, 価格, Condition, USD, メモ ）"></textarea>
+    <div class="small muted">* 価格は自動的に「49800」のように数字のみになります。</div>
   </div>
 
+  <!-- 履歴モーダル -->
   <dialog id="historyModal">
     <div class="modal-header">
       <strong>📜 抽出履歴（最大30件）</strong>
@@ -104,6 +74,7 @@
     </div>
     <div class="modal-body" id="historyList"></div>
     <div class="modal-footer">
+      <button id="copyAllHistoryBtn" class="btn-secondary">📋 一括コピー（CSV）</button>
       <button id="clearHistoryBtn" class="btn-secondary">🧹 全削除</button>
       <button id="closeHistoryBtn">閉じる</button>
     </div>
@@ -111,7 +82,6 @@
 
   <script>
     const GAS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxxPGc2rPb7s7Lm6ICPMG3oYmnCiVzdJSrWRCbPFJWSCJib_INXrMrI926APm72VDWpKA/exec";
-    const SHEET_URL = "https://docs.google.com/spreadsheets/d/1sOo3Wx4r0CYbF5Z7L5d7e3rpoHiR_0HcawSqfszR8NI/edit#gid=0";
 
     const HISTORY_KEY = "kitamura_ocr_history_v1";
     const HISTORY_LIMIT = 30;
@@ -133,33 +103,25 @@
       histCount: document.getElementById("histCount"),
       clearHistoryBtn: document.getElementById("clearHistoryBtn"),
       closeHistoryBtn: document.getElementById("closeHistoryBtn"),
-      successBanner: document.getElementById("successBanner"),
+      copyAllHistoryBtn: document.getElementById("copyAllHistoryBtn"),
     };
 
     function loadHistory(){ try{ return JSON.parse(localStorage.getItem(HISTORY_KEY)||"[]"); }catch{ return []; } }
     function saveHistory(arr){ localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); }
+
     function addToHistory(entry){
       const hist = loadHistory();
       hist.unshift(entry);
       if (hist.length > HISTORY_LIMIT) hist.length = HISTORY_LIMIT;
       saveHistory(hist);
     }
+
     function parseCsvLine(line){
-      const parts = (line||"").split(",").map(s=>s.trim());
-      const [name="", priceJP="", cond="", usd="", memo=""] = parts.concat(["","","","",""]).slice(0,5);
-      return { name, priceJP, cond, usd, memo };
+      const p = (line||"").split(",").map(s=>s.trim());
+      const [name="", price="", cond="", usd="", memo=""] = p.concat(["","","","",""]).slice(0,5);
+      return { name, price, cond, usd, memo };
     }
 
-    function jpPriceToNumber(priceJP){
-      return String(priceJP||"").replace(/[^\d]/g,"") || "";
-    }
-
-    els.openHistoryBtn.onclick = ()=>{ renderHistory(); els.historyModal.showModal(); };
-    els.closeHistoryBtn.onclick = ()=> els.historyModal.close();
-    els.clearHistoryBtn.onclick = ()=>{
-      if (!confirm("履歴をすべて削除しますか？")) return;
-      saveHistory([]); renderHistory();
-    };
     function renderHistory(){
       const hist = loadHistory();
       els.histCount.textContent = `${hist.length} items`;
@@ -169,10 +131,10 @@
         div.className = "history-item";
         div.innerHTML = `
           <div><strong>${h.name || "(no title)"}</strong></div>
-          <div class="small muted">${h.priceJP || "-"} ｜ ${h.cond || "-"} ｜ USD: ${h.usd || "-"}</div>
+          <div class="small muted">${h.price || "-"} ｜ ${h.cond || "-"} ｜ USD: ${h.usd || "-"}</div>
           <div class="small muted">${h.memo || ""}</div>
           <div class="history-actions">
-            <button data-idx="${idx}" data-act="use">↩ この内容を編集欄に反映</button>
+            <button data-idx="${idx}" data-act="use">↩ 編集欄に反映</button>
             <button data-idx="${idx}" data-act="copy" class="btn-secondary">📋 コピー</button>
             <button data-idx="${idx}" data-act="del" class="btn-secondary">🗑 削除</button>
           </div>
@@ -181,86 +143,104 @@
       });
     }
 
+    els.openHistoryBtn.onclick = ()=>{ renderHistory(); els.historyModal.showModal(); };
+    els.closeHistoryBtn.onclick = ()=> els.historyModal.close();
+
+    els.clearHistoryBtn.onclick = ()=>{ if(confirm("履歴をすべて削除しますか？")){ saveHistory([]); renderHistory(); }};
+
+    els.historyList.onclick = (e)=>{
+      const btn = e.target.closest("button"); if(!btn) return;
+      const idx = Number(btn.dataset.idx), act = btn.dataset.act;
+      const hist = loadHistory(), h = hist[idx]; if(!h) return;
+      const csv = `${h.name}, ${h.price}, ${h.cond}, ${h.usd}, ${h.memo}`;
+      if(act==="use"){ els.editableOutput.value = csv; els.status.textContent="↩ 履歴から読み込み"; els.historyModal.close(); }
+      else if(act==="copy"){ navigator.clipboard.writeText(csv); alert("コピーしました!"); }
+      else if(act==="del"){ hist.splice(idx,1); saveHistory(hist); renderHistory(); }
+    };
+
+    els.copyAllHistoryBtn.onclick = ()=>{
+      const hist = loadHistory();
+      if(!hist.length){ alert("履歴が空です"); return; }
+      const all = hist.map(h=>`${h.name}, ${h.price}, ${h.cond}, ${h.usd}, ${h.memo}`).join("\n");
+      navigator.clipboard.writeText(all).then(()=>alert("📋 全件コピーしました!"));
+    };
+
     els.extractBtn.onclick = async ()=>{
       const file = els.imageInput.files?.[0];
       if (!file){ alert("画像を選択してください"); return; }
+
+      els.status.textContent = "🔄 認識中...";
+      els.copyBtn.style.display = "none"; els.saveHistoryBtn.style.display = "none";
+
       const reader = new FileReader();
       reader.onload = async ()=>{
         const base64 = reader.result;
-        els.status.textContent = "🔄 認識中...";
-        els.copyBtn.style.display = "none";
-        els.saveHistoryBtn.style.display = "none";
         try{
-          const res = await fetch("/.netlify/functions/openai-function",{
-            method:"POST", headers:{ "Content-Type":"application/json" },
+          const r = await fetch("/.netlify/functions/openai-function",{
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
             body: JSON.stringify({ imageBase64: base64 })
           });
-          const data = await res.json();
-          const name = data?.商品?.名前 || "不明";
-          const priceJP = data?.商品?.価格 || "税込0円";
+          const data = await r.json();
+
+          let name = data?.商品?.名前 || "不明";
+          let priceJP = data?.商品?.価格 || "0";
+          priceJP = priceJP.replace(/[^\d]/g,""); // ← 数字だけ残す！
+
           const cond = els.condition.value || "";
           const usd  = els.priceUSD.value || "";
           const memo = els.note.value || "";
-          els.editableOutput.value = `${name}, ${priceJP}, ${cond}, ${usd}, ${memo}`;
-          els.status.textContent = "✅ 抽出完了（編集→保存→コピー／一括転記できます）";
+
+          const csv = `${name}, ${priceJP}, ${cond}, ${usd}, ${memo}`;
+          els.editableOutput.value = csv;
+          els.status.textContent = "✅ 抽出完了";
           els.copyBtn.style.display = "inline-block";
           els.saveHistoryBtn.style.display = "inline-block";
-        }catch(e){
-          els.status.textContent = "❌ エラー: "+e.message;
+
+        }catch(err){
+          els.status.textContent = "❌ エラー: " + err.message;
         }
       };
       reader.readAsDataURL(file);
     };
 
-    els.copyBtn.onclick = async ()=>{ try {
-      await navigator.clipboard.writeText(els.editableOutput.value);
-      alert("📋 コピーしました！");
-    } catch {
-      alert("⚠️ 手動でコピーしてください。");
-    }};
+    els.copyBtn.onclick = ()=> navigator.clipboard.writeText(els.editableOutput.value).then(()=>alert("コピーしました!"));
 
     els.saveHistoryBtn.onclick = ()=>{
-      const { name, priceJP, cond, usd, memo } = parseCsvLine(els.editableOutput.value);
-      if (!name){ alert("商品名が空です。"); return; }
-      addToHistory({ name, priceJP, cond, usd, memo });
-      els.status.textContent = "💾 履歴に保存しました。";
+      const { name, price, cond, usd, memo } = parseCsvLine(els.editableOutput.value);
+      if (!name){ alert("商品名が空です"); return; }
+      addToHistory({ name, price, cond, usd, memo });
+      els.status.textContent = "💾 保存しました";
     };
 
     els.exportSheetBtn.onclick = async ()=>{
       const hist = loadHistory();
-      if (!hist.length){ alert("履歴が空です。"); return; }
+      if (!hist.length){ alert("履歴が空です"); return; }
+      if (!GAS_WEBHOOK_URL.includes("http")){ alert("GAS URL未設定"); return; }
       const payload = hist.map(h=>({
-        name:h.name,
-        priceJPY:jpPriceToNumber(h.priceJP),
-        cond:h.cond||"",
-        usd:(h.usd??"").trim(),
-        memo:h.memo||""
+        name: h.name,
+        priceJPY: h.price,
+        cond: h.cond || "",
+        usd : (h.usd ?? "").toString().trim(),
+        memo: h.memo || ""
       }));
       try{
-        const res = await fetch(GAS_WEBHOOK_URL,{
+        const r = await fetch(GAS_WEBHOOK_URL,{
           method:"POST",
-          mode:"cors",
           headers:{ "Content-Type":"application/json" },
-          body: JSON.stringify({ entries:payload })
+          body: JSON.stringify({ entries: payload })
         });
-        const j = await res.json();
-        if(j.ok){
-          showSuccess(`🧾 スプレッドシートへ ${j.added}件 追加しました！`);
-          saveHistory([]);
-          els.status.textContent="✅ 転記完了。履歴をクリアしました。";
+        const j = await r.json();
+        if (j.ok){
+          alert(`🧾 ${j.added}件追加しました`);
+          saveHistory([]); // 転記後削除
         } else {
-          alert("転記に失敗："+(j.error||""));
+          alert("転記失敗: " + (j.error || ""));
         }
-      } catch(e) {
-        alert("通信エラー："+e.message);
+      }catch(e){
+        alert("通信エラー: " + e.message);
       }
     };
-
-    function showSuccess(msg){
-      els.successBanner.innerHTML = `${msg} <button onclick="window.open(SHEET_URL,'_blank')">シートを開く</button>`;
-      els.successBanner.style.display="block";
-      setTimeout(()=>{ els.successBanner.style.display="none"; },5000);
-    }
   </script>
 </body>
 </html>
