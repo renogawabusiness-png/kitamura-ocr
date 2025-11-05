@@ -33,7 +33,7 @@
     .small{ font-size:12px; }
     .pill{ display:inline-block; background:#eee; border-radius:999px; padding:4px 10px; font-size:12px; }
 
-    /* ✅ 転記成功バナー */
+    /* ✅ 成功バナー */
     #successBanner {
       display:none;
       position:fixed;
@@ -48,6 +48,15 @@
       box-shadow:0 2px 8px rgba(0,0,0,.2);
       z-index:9999;
       animation:fadein .3s;
+    }
+    #successBanner button{
+      margin-left:8px;
+      background:white;
+      color:black;
+      padding:4px 8px;
+      border-radius:6px;
+      cursor:pointer;
+      border:none;
     }
     @keyframes fadein { from{opacity:0; transform:translate(-50%, -10px);} to{opacity:1; transform:translate(-50%, 0);} }
   </style>
@@ -103,10 +112,9 @@
   </dialog>
 
   <script>
-    /* ✅ あなた専用 */
+    /* ✅ あなたのGAS WebアプリURL（最新） */
     const GAS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzYU1Zv7kuMpbY6vlkR05-OExEhT7ILFMY4sDVp3gkulPB0Dh4Y6mqrB1LsoH9Oj3g5pw/exec";
-
-    /* ✅ 後でシートURLを入れてください */
+    /* ✅ 後で差し替え：シートURL（新規タブで開きます） */
     const SHEET_URL = "<<<https://docs.google.com/spreadsheets/d/1sOo3Wx4r0CYbF5Z7L5d7e3rpoHiR_0HcawSqfszR8NI/edit?usp=sharing>>>";
 
     const HISTORY_KEY = "kitamura_ocr_history_v1";
@@ -132,14 +140,7 @@
       successBanner: document.getElementById("successBanner"),
     };
 
-    function showBanner(msg, withOpenBtn=false) {
-      els.successBanner.innerHTML = withOpenBtn
-        ? `${msg} <button style="margin-left:8px;background:white;color:black;padding:4px 8px;border-radius:6px;cursor:pointer;" onclick="window.open(SHEET_URL, '_blank')">シートを開く</button>`
-        : msg;
-      els.successBanner.style.display = "block";
-      setTimeout(()=>{ els.successBanner.style.display = "none"; }, 5000);
-    }
-
+    /* ========== 履歴ユーティリティ ========== */
     function loadHistory(){ try{ return JSON.parse(localStorage.getItem(HISTORY_KEY)||"[]"); }catch{ return []; } }
     function saveHistory(arr){ localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); }
     function addToHistory(entry){
@@ -173,7 +174,6 @@
         els.historyList.appendChild(div);
       });
     }
-
     els.openHistoryBtn.onclick = ()=>{ renderHistory(); els.historyModal.showModal(); };
     els.closeHistoryBtn.onclick = ()=> els.historyModal.close();
     els.clearHistoryBtn.onclick = ()=>{
@@ -190,12 +190,14 @@
       else if (act==="del"){ hist.splice(idx,1); saveHistory(hist); renderHistory(); }
     };
 
+    /* ========== 価格文字列 → 数字 ========= */
     function jpPriceToNumber(priceJP){
       if (!priceJP) return "";
       const digits = String(priceJP).replace(/[^\d]/g,"");
       return digits || "";
     }
 
+    /* ========== 抽出ボタン ========== */
     els.extractBtn.onclick = async function(){
       const file = els.imageInput.files?.[0];
       if (!file) return alert("画像を選択してください");
@@ -233,6 +235,7 @@
       reader.readAsDataURL(file);
     };
 
+    /* ========== 修正後コピー ========== */
     els.copyBtn.onclick = async ()=>{
       try{
         await navigator.clipboard.writeText(els.editableOutput.value);
@@ -242,6 +245,7 @@
       }
     };
 
+    /* ========== 履歴保存 ========== */
     els.saveHistoryBtn.onclick = ()=>{
       const { name, priceJP, cond, usd, memo } = parseCsvLine(els.editableOutput.value);
       if (!name) return alert("商品名が空です。編集欄を確認してください。");
@@ -249,7 +253,7 @@
       els.status.textContent = "💾 履歴に保存しました。";
     };
 
-    /* ✅ CORS対応版：レスポンス受取り可能 */
+    /* ========== 一括転記（CORS完全対応；iPhone可） ========== */
     els.exportSheetBtn.onclick = async ()=>{
       const hist = loadHistory();
       if (!hist.length) return alert("履歴が空です。まず抽出して『保存』してください。");
@@ -266,23 +270,35 @@
       try{
         const r = await fetch(GAS_WEBHOOK_URL,{
           method:"POST",
+          mode:"cors",                // ← 重要（iPhone対策）
+          cache:"no-store",
+          credentials:"omit",
+          redirect:"follow",
           headers:{ "Content-Type":"application/json" },
           body: JSON.stringify({ entries: payload })
         });
-        const j = await r.json();
 
+        // GASがJSONを返す前提
+        const j = await r.json();
         if (j.ok){
-          showBanner(`🧾 スプレッドシートへ ${j.added}件 追加しました！`, true);
+          showSuccess(`🧾 スプレッドシートへ ${j.added}件 追加しました！`);
           saveHistory([]);
           els.status.textContent = "✅ シート転記完了（履歴をクリアしました）";
         } else {
           alert("転記に失敗しました: " + (j.error || "Unknown error"));
         }
       }catch(e){
-        alert("通信エラー: " + e.message);
+        alert("通信エラー: " + e.message + "\n\n(ヒント) まだ失敗する場合はGAS側のCORSヘッダーを再確認してください。");
       }
     };
+
+    /* ========== 成功バナー ========== */
+    function showSuccess(msg){
+      els.successBanner.innerHTML =
+        `${msg} <button onclick="if(SHEET_URL && !SHEET_URL.includes('<<<')) window.open(SHEET_URL,'_blank'); else alert('SHEET_URL を設定してください');">シートを開く</button>`;
+      els.successBanner.style.display = "block";
+      setTimeout(()=>{ els.successBanner.style.display = "none"; }, 5000);
+    }
   </script>
 </body>
 </html>
-
