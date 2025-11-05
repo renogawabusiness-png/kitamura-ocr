@@ -33,7 +33,6 @@
     .small{ font-size:12px; }
     .pill{ display:inline-block; background:#eee; border-radius:999px; padding:4px 10px; font-size:12px; }
 
-    /* ✅ 成功バナー */
     #successBanner {
       display:none;
       position:fixed;
@@ -98,7 +97,6 @@
     <div class="small muted">* 税込価格は「税込49,800円」のように抽出されますが、シート転記時に「49800」に自動変換します。</div>
   </div>
 
-  <!-- 履歴モーダル -->
   <dialog id="historyModal">
     <div class="modal-header">
       <strong>📜 抽出履歴（最大30件）</strong>
@@ -112,10 +110,8 @@
   </dialog>
 
   <script>
-    /* ✅ あなたのGAS WebアプリURL（最新） */
-    const GAS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwP_h-imVbQ0A010gzlFEauQO0mktKv1BD7rX7z0lzIKl6_qKrSzPCSKW1ntWxKJbLjUg/exec";
-    /* ✅ 後で差し替え：シートURL（新規タブで開きます） */
-    const SHEET_URL = "<<<https://docs.google.com/spreadsheets/d/1sOo3Wx4r0CYbF5Z7L5d7e3rpoHiR_0HcawSqfszR8NI/edit?usp=sharing>>>";
+    const GAS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxxPGc2rPb7s7Lm6ICPMG3oYmnCiVzdJSrWRCbPFJWSCJib_INXrMrI926APm72VDWpKA/exec";
+    const SHEET_URL = "https://docs.google.com/spreadsheets/d/1sOo3Wx4r0CYbF5Z7L5d7e3rpoHiR_0HcawSqfszR8NI/edit#gid=0";
 
     const HISTORY_KEY = "kitamura_ocr_history_v1";
     const HISTORY_LIMIT = 30;
@@ -140,7 +136,6 @@
       successBanner: document.getElementById("successBanner"),
     };
 
-    /* ========== 履歴ユーティリティ ========== */
     function loadHistory(){ try{ return JSON.parse(localStorage.getItem(HISTORY_KEY)||"[]"); }catch{ return []; } }
     function saveHistory(arr){ localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); }
     function addToHistory(entry){
@@ -154,6 +149,17 @@
       const [name="", priceJP="", cond="", usd="", memo=""] = parts.concat(["","","","",""]).slice(0,5);
       return { name, priceJP, cond, usd, memo };
     }
+
+    function jpPriceToNumber(priceJP){
+      return String(priceJP||"").replace(/[^\d]/g,"") || "";
+    }
+
+    els.openHistoryBtn.onclick = ()=>{ renderHistory(); els.historyModal.showModal(); };
+    els.closeHistoryBtn.onclick = ()=> els.historyModal.close();
+    els.clearHistoryBtn.onclick = ()=>{
+      if (!confirm("履歴をすべて削除しますか？")) return;
+      saveHistory([]); renderHistory();
+    };
     function renderHistory(){
       const hist = loadHistory();
       els.histCount.textContent = `${hist.length} items`;
@@ -174,133 +180,87 @@
         els.historyList.appendChild(div);
       });
     }
-    els.openHistoryBtn.onclick = ()=>{ renderHistory(); els.historyModal.showModal(); };
-    els.closeHistoryBtn.onclick = ()=> els.historyModal.close();
-    els.clearHistoryBtn.onclick = ()=>{
-      if (!confirm("履歴をすべて削除しますか？")) return;
-      saveHistory([]); renderHistory();
-    };
-    els.historyList.onclick = (e)=>{
-      const btn = e.target.closest("button"); if(!btn) return;
-      const idx = Number(btn.dataset.idx); const act = btn.dataset.act;
-      const hist = loadHistory(); const h = hist[idx]; if(!h) return;
-      const csv = `${h.name}, ${h.priceJP}, ${h.cond}, ${h.usd}, ${h.memo}`;
-      if (act==="use"){ els.editableOutput.value = csv; els.status.textContent="↩ 履歴から読み込みました。"; els.historyModal.close(); }
-      else if (act==="copy"){ navigator.clipboard.writeText(csv).then(()=>alert("コピーしました！")).catch(()=>alert("コピーに失敗しました。")); }
-      else if (act==="del"){ hist.splice(idx,1); saveHistory(hist); renderHistory(); }
-    };
 
-    /* ========== 価格文字列 → 数字 ========= */
-    function jpPriceToNumber(priceJP){
-      if (!priceJP) return "";
-      const digits = String(priceJP).replace(/[^\d]/g,"");
-      return digits || "";
-    }
-
-    /* ========== 抽出ボタン ========== */
-    els.extractBtn.onclick = async function(){
+    els.extractBtn.onclick = async ()=>{
       const file = els.imageInput.files?.[0];
-      if (!file) return alert("画像を選択してください");
-
+      if (!file){ alert("画像を選択してください"); return; }
       const reader = new FileReader();
       reader.onload = async ()=>{
-        const base64Image = reader.result;
+        const base64 = reader.result;
         els.status.textContent = "🔄 認識中...";
         els.copyBtn.style.display = "none";
         els.saveHistoryBtn.style.display = "none";
-
         try{
           const res = await fetch("/.netlify/functions/openai-function",{
-            method:"POST",
-            headers:{ "Content-Type":"application/json" },
-            body: JSON.stringify({ imageBase64: base64Image })
+            method:"POST", headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify({ imageBase64: base64 })
           });
           const data = await res.json();
-
           const name = data?.商品?.名前 || "不明";
           const priceJP = data?.商品?.価格 || "税込0円";
           const cond = els.condition.value || "";
           const usd  = els.priceUSD.value || "";
           const memo = els.note.value || "";
-
-          const csv = `${name}, ${priceJP}, ${cond}, ${usd}, ${memo}`;
-          els.editableOutput.value = csv;
+          els.editableOutput.value = `${name}, ${priceJP}, ${cond}, ${usd}, ${memo}`;
           els.status.textContent = "✅ 抽出完了（編集→保存→コピー／一括転記できます）";
           els.copyBtn.style.display = "inline-block";
           els.saveHistoryBtn.style.display = "inline-block";
-        }catch(err){
-          els.status.textContent = "❌ エラー: " + err.message;
+        }catch(e){
+          els.status.textContent = "❌ エラー: "+e.message;
         }
       };
       reader.readAsDataURL(file);
     };
 
-    /* ========== 修正後コピー ========== */
-    els.copyBtn.onclick = async ()=>{
-      try{
-        await navigator.clipboard.writeText(els.editableOutput.value);
-        alert("📋 修正後の内容をコピーしました！");
-      }catch{
-        alert("⚠️ 自動コピーがブロックされました。手動でコピーしてください。");
-      }
-    };
+    els.copyBtn.onclick = async ()=>{ try {
+      await navigator.clipboard.writeText(els.editableOutput.value);
+      alert("📋 コピーしました！");
+    } catch {
+      alert("⚠️ 手動でコピーしてください。");
+    }};
 
-    /* ========== 履歴保存 ========== */
     els.saveHistoryBtn.onclick = ()=>{
       const { name, priceJP, cond, usd, memo } = parseCsvLine(els.editableOutput.value);
-      if (!name) return alert("商品名が空です。編集欄を確認してください。");
+      if (!name){ alert("商品名が空です。"); return; }
       addToHistory({ name, priceJP, cond, usd, memo });
       els.status.textContent = "💾 履歴に保存しました。";
     };
 
-    /* ========== 一括転記（CORS完全対応；iPhone可） ========== */
     els.exportSheetBtn.onclick = async ()=>{
       const hist = loadHistory();
-      if (!hist.length) return alert("履歴が空です。まず抽出して『保存』してください。");
-      if (!GAS_WEBHOOK_URL) return alert("GAS WebアプリURLが設定されていません。");
-
+      if (!hist.length){ alert("履歴が空です。"); return; }
       const payload = hist.map(h=>({
-        name: h.name,
-        priceJPY: jpPriceToNumber(h.priceJP),
-        cond: h.cond || "",
-        usd : (h.usd ?? "").toString().trim(),
-        memo: h.memo || ""
+        name:h.name,
+        priceJPY:jpPriceToNumber(h.priceJP),
+        cond:h.cond||"",
+        usd:(h.usd??"").trim(),
+        memo:h.memo||""
       }));
-
       try{
-        const r = await fetch(GAS_WEBHOOK_URL,{
+        const res = await fetch(GAS_WEBHOOK_URL,{
           method:"POST",
-          mode:"cors",                // ← 重要（iPhone対策）
-          cache:"no-store",
-          credentials:"omit",
-          redirect:"follow",
+          mode:"cors",
           headers:{ "Content-Type":"application/json" },
-          body: JSON.stringify({ entries: payload })
+          body: JSON.stringify({ entries:payload })
         });
-
-        // GASがJSONを返す前提
-        const j = await r.json();
-        if (j.ok){
+        const j = await res.json();
+        if(j.ok){
           showSuccess(`🧾 スプレッドシートへ ${j.added}件 追加しました！`);
           saveHistory([]);
-          els.status.textContent = "✅ シート転記完了（履歴をクリアしました）";
+          els.status.textContent="✅ 転記完了。履歴をクリアしました。";
         } else {
-          alert("転記に失敗しました: " + (j.error || "Unknown error"));
+          alert("転記に失敗："+(j.error||""));
         }
-      }catch(e){
-        alert("通信エラー: " + e.message + "\n\n(ヒント) まだ失敗する場合はGAS側のCORSヘッダーを再確認してください。");
+      } catch(e) {
+        alert("通信エラー："+e.message);
       }
     };
 
-    /* ========== 成功バナー ========== */
     function showSuccess(msg){
-      els.successBanner.innerHTML =
-        `${msg} <button onclick="if(SHEET_URL && !SHEET_URL.includes('<<<')) window.open(SHEET_URL,'_blank'); else alert('SHEET_URL を設定してください');">シートを開く</button>`;
-      els.successBanner.style.display = "block";
-      setTimeout(()=>{ els.successBanner.style.display = "none"; }, 5000);
+      els.successBanner.innerHTML = `${msg} <button onclick="window.open(SHEET_URL,'_blank')">シートを開く</button>`;
+      els.successBanner.style.display="block";
+      setTimeout(()=>{ els.successBanner.style.display="none"; },5000);
     }
   </script>
 </body>
 </html>
-
-
