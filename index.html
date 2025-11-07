@@ -81,6 +81,24 @@
   </dialog>
 
   <script>
+async function cleanBase64(dataURL) {
+  if (!dataURL) return "";
+  if (dataURL.startsWith("data:image/heic") || dataURL.startsWith("data:image/heif")) {
+    try {
+      const img = await createImageBitmap(await (await fetch(dataURL)).blob());
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      dataURL = canvas.toDataURL("image/jpeg", 0.92);
+    } catch(e) {
+      console.warn("HEIC変換に失敗（そのまま送信）", e);
+    }
+  }
+  return dataURL.replace(/[\n\r]/g, "").replace(/\s/g, "").trim();
+}
+    
     const GAS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxxPGc2rPb7s7Lm6ICPMG3oYmnCiVzdJSrWRCbPFJWSCJib_INXrMrI926APm72VDWpKA/exec";
 
     const HISTORY_KEY = "kitamura_ocr_history_v1";
@@ -174,7 +192,7 @@
 
       const reader = new FileReader();
       reader.onload = async ()=>{
-        const base64 = reader.result;
+        const base64 = await cleanBase64(reader.result);
         try{
           const r = await fetch("/.netlify/functions/openai-function",{
             method:"POST",
@@ -244,3 +262,4 @@
   </script>
 </body>
 </html>
+
